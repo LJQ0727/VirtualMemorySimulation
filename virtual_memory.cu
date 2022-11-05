@@ -2,13 +2,20 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-__device__ __managed__ u32 access_trace = 1;  // For LRU implementation.
+__device__ __managed__ u32 access_trace = 0;  // For LRU implementation.
 
 __device__ void init_invert_page_table(VirtualMemory *vm) {
 
   for (int i = 0; i < vm->PAGE_ENTRIES; i++) {
     vm->invert_page_table[i] = 0x80000000; // invalid := MSB is 1
     vm->invert_page_table[i + vm->PAGE_ENTRIES] = i;
+  }
+}
+
+__device__ void init_swap_table(VirtualMemory *vm) {
+
+  for (int i = 0; i < vm->SWAP_PAGE_ENTRIES; i++) {
+    vm->swap_table[i] = 0x80000000; // invalid := MSB is 1
   }
 }
 
@@ -35,12 +42,16 @@ __device__ void vm_init(VirtualMemory *vm, uchar *buffer, uchar *storage,
   vm->swap_table = swap_table;
   vm->SWAP_PAGE_ENTRIES = STORAGE_SIZE / PAGESIZE;
 
+
   // before first vm_write or vm_read
   init_invert_page_table(vm);
+  init_swap_table(vm);
 }
 
 __device__ uchar vm_read(VirtualMemory *vm, u32 addr) {
   /* Complate vm_read function to read single element from data buffer */
+  access_trace++;
+
   return 123; //TODO
 }
 
@@ -66,29 +77,33 @@ __device__ u32 swap_page() {
 }
 
 // Use the LRU algorithm to find a pointer to an entry in the page table that is least recently used
-__device__ u32 * LRU_get(VirtualMemory *vm) {
-  u32* ret = &vm->invert_page_table[vm->PAGE_ENTRIES];
-  u32 least_trace_value = vm->invert_page_table[vm->PAGE_ENTRIES];
+__device__ int LRU_get(VirtualMemory *vm) {
+  int swapped_frame_no = 0;
+  u32 least_trace_value = vm->invert_page_table[0+vm->PAGE_ENTRIES];
 
   for (int i = 1; i < vm->PAGE_ENTRIES; i++)
   {
     if (vm->invert_page_table[i+vm->PAGE_ENTRIES] < least_trace_value)
     {
-      ret = &vm->invert_page_table[i+vm->PAGE_ENTRIES];
+      swapped_frame_no = i;
       least_trace_value = vm->invert_page_table[i+vm->PAGE_ENTRIES];
     }
     
   }
-  return ret;
+  return swapped_frame_no;
 }
 
-__device__ void LRU_put(VirtualMemory *vm, int page_number) {
-  vm->invert_page_table[page_number+vm->PAGE_ENTRIES] = access_trace;
+__device__ void LRU_put(VirtualMemory *vm, int frame_no) {
+  vm->invert_page_table[frame_no+vm->PAGE_ENTRIES] = access_trace;
 }
 
+__device__ void swap(VirtualMemory *vm, int swapped_frame_no, int storage_frame_no) {
+  // TODO
+}
 
 __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
   /* Complete vm_write function to write value into data buffer */
+  access_trace++;
 
   // given 32-bit virtual address addr, compute the page number and offset fields
   int offset_bit = my_log2(vm->PAGESIZE); // 5-bit offset in each frame (or page)
@@ -98,35 +113,66 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
   int offset = addr & ((1 << offset_bit) - 1);
 
   bool page_is_found = false;
-  // in the page table, search for the page number
+  // in the inverted page table, search for the page number
+  // i is the frame number
   for (int i = 0; i < vm->PAGE_ENTRIES; i++)
   {
-    // page is found in the page table
+    // if page is found in the page table
     u32 entry = vm->invert_page_table[i];
-    if ((entry & 0x80000000 == 0) && (entry & 0x7FFFFFFF >> page_entries_bit) == page_number) // if the page number is found
+    if ((entry & 0x80000000 == 0) && entry & 0x7FFFFFFF == page_number) // if the page number is found
     {
       page_is_found = true;
       // get the frame number
-      int frame_number = entry & ((1 << page_entries_bit) - 1);
+      int frame_number = i;
       // write the value into the buffer
       vm->buffer[frame_number * vm->PAGESIZE + offset] = value;
+      LRU_put(vm, frame_number);
       return;
     } 
   } 
   
   if (!page_is_found) {
-    // page is not found in the page table
+    // if page is not found in the page table
     vm->pagefault_num_ptr[0]++;
+
+    // check if the primary memory is full
+    // if the primary memory is not full, we can directly allocate new page there
+    for (int i = 0; i < vm->PAGE_ENTRIES; i++)
+    {
+      if (vm->invert_page_table[i] & 0x80000000 == 1) {
+        // this entry is not used
+        // mark it occupied
+        vm->invert_page_table[i] = 0;
+
+        // write the page number
+        vm->invert_page_table[i] &= page_number;
+
+        // write to destination
+        vm->buffer[i + offset] = value;
+
+        vm->invert_page_table[i+vm->PAGE_ENTRIES] = access_trace;
+        
+        return;
+      }
+    }
+    
+    // the main memory is full, we have to swap in an exsting page or swap in a new page
+
     // first, we determine whether the page just doesn't exist yet.
-    // if so, we need to allocate a new page for it
+    // find in the swap table
     for (int i = 0; i < vm->SWAP_PAGE_ENTRIES; i++)
     {
       u32 entry = vm->swap_table[i];
-      if ((entry & 0x80000000 == 0) && (entry & 0x7FFFFFFF >> page_entries_bit) == page_number) // if the page number is found
+      if ((entry & 0x80000000 == 0) && entry & 0x7FFFFFFF == page_number) // if the page number is found
       {
         page_is_found = true;
-        // get the frame number
-        int frame_number = entry & ((1 << page_entries_bit) - 1);
+        
+        // the page in found in the swap storage
+        // now we swap with an LRU in the main memory
+        int swapped_frame_no = LRU_get(vm);
+
+        // do the swapping
+
         // write the value into the buffer
         vm->buffer[frame_number * vm->PAGESIZE + offset] = value;
         return;
