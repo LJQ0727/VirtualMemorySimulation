@@ -23,6 +23,7 @@ struct VirtualMemory {
   int PAGE_ENTRIES;   // number of page entries, here it's PHYSICAL_MEM_SIZE / PAGE_SIZE, 1024
 
   int SWAP_PAGE_ENTRIES;  // number of page entries in swap table. which is 4096
+  int thread_id;  // thread id, 0, 1, 2, 3
 };
 
 // TODO

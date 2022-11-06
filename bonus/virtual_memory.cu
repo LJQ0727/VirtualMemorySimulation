@@ -210,7 +210,7 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
       u32 entry = vm->swap_table[i];
       if (entry == page_number) // if the page number is found
       {
-        printf("page is found in the swap table");
+        //printf("page is found in the swap table");
         // the page in found in the swap storage
         page_is_found = true;
         
