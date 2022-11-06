@@ -48,12 +48,6 @@ __device__ void vm_init(VirtualMemory *vm, uchar *buffer, uchar *storage,
   init_swap_table(vm);
 }
 
-__device__ uchar vm_read(VirtualMemory *vm, u32 addr) {
-  /* Complate vm_read function to read single element from data buffer */
-  access_trace++;
-
-  return 123; //TODO
-}
 
 __device__ int my_log2(int num) {
   // get the log of 2^n, returning n
@@ -66,15 +60,6 @@ __device__ int my_log2(int num) {
   return ret;
 }
 
-__device__ u32 alloc_page() {
-  // allocate a page from the physical memory
-  // return the page number
-
-}
-
-__device__ u32 swap_page() {
-
-}
 
 // Use the LRU algorithm to find a pointer to an entry in the page table that is least recently used
 __device__ int LRU_get(VirtualMemory *vm) {
@@ -98,7 +83,62 @@ __device__ void LRU_put(VirtualMemory *vm, int frame_no) {
 }
 
 __device__ void swap(VirtualMemory *vm, int swapped_frame_no, int storage_frame_no) {
-  // TODO
+  // swap the frame in the main memory with the frame in the physical memory
+  // also swap the page table entries
+  u32 temp = vm->invert_page_table[swapped_frame_no];
+  vm->invert_page_table[swapped_frame_no] = vm->swap_table[storage_frame_no];
+  vm->swap_table[storage_frame_no] = temp;
+  for (int i = 0; i < vm->PAGESIZE; i++)
+  {
+    u32 tmp = vm->buffer[swapped_frame_no*vm->PAGESIZE + i];
+    vm->buffer[swapped_frame_no*vm->PAGESIZE + i] = vm->storage[storage_frame_no*vm->PAGESIZE + i];
+    vm->storage[storage_frame_no*vm->PAGESIZE + i] = tmp;
+  }
+  
+}
+
+__device__ uchar vm_read(VirtualMemory *vm, u32 addr) {
+  /* Complate vm_read function to read single element from data buffer */
+  access_trace++;
+
+  // given 32-bit virtual address addr, compute the page number and offset fields
+  int offset_bit = my_log2(vm->PAGESIZE); // 5-bit offset in each frame (or page)
+  int page_entries_bit = my_log2(vm->PAGE_ENTRIES); // 10-bit page entry
+
+  int page_number = addr >> offset_bit; // This page number has at most 13 bits for our problem
+  int offset = addr & ((1 << offset_bit) - 1);
+
+  bool page_is_found = false;
+
+  for (int i = 0; i < vm->PAGE_ENTRIES; i++)
+  {
+    u32 entry = vm->invert_page_table[i];
+    if (entry == page_number)
+    {
+      // page is found in the main memory
+      page_is_found = true;
+      LRU_put(vm, i);
+      return vm->buffer[i*vm->PAGESIZE + offset];
+    }
+
+    // page is not found in the main memory
+    // this is a page fault
+    // now we have to find in the swap table
+    vm->pagefault_num_ptr[0]++;
+    for (int j = 0; j < vm->SWAP_PAGE_ENTRIES; j++)
+    {
+      u32 entry = vm->swap_table[j];
+      if (entry == page_number)
+      {
+        // page is found in the swap table
+        // we have to swap the page in the main memory with the page in the swap table
+        int swapped_frame_no = LRU_get(vm);
+        swap(vm, swapped_frame_no, j);
+        LRU_put(vm, swapped_frame_no);
+        return vm->buffer[swapped_frame_no*vm->PAGESIZE + offset];
+      }
+    }
+  }
 }
 
 __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
@@ -141,16 +181,14 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
     {
       if (vm->invert_page_table[i] & 0x80000000 == 1) {
         // this entry is not used
-        // mark it occupied
-        vm->invert_page_table[i] = 0;
-
+        // mark it occupied and
         // write the page number
-        vm->invert_page_table[i] &= page_number;
+        vm->invert_page_table[i] = page_number;
 
         // write to destination
         vm->buffer[i + offset] = value;
 
-        vm->invert_page_table[i+vm->PAGE_ENTRIES] = access_trace;
+        LRU_put(vm, i);
         
         return;
       }
@@ -165,55 +203,47 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
       u32 entry = vm->swap_table[i];
       if ((entry & 0x80000000 == 0) && entry & 0x7FFFFFFF == page_number) // if the page number is found
       {
+        // the page in found in the swap storage
         page_is_found = true;
         
-        // the page in found in the swap storage
         // now we swap with an LRU in the main memory
         int swapped_frame_no = LRU_get(vm);
 
         // do the swapping
+        swap(vm, swapped_frame_no, i);
 
         // write the value into the buffer
-        vm->buffer[frame_number * vm->PAGESIZE + offset] = value;
+        vm->buffer[swapped_frame_no * vm->PAGESIZE + offset] = value;
+
+        LRU_put(vm, swapped_frame_no);
         return;
       } 
     }
     
-    
+    // the page is not found in the swap storage, meaning it doesn't exist yet
+    // allocate an unoccupied page from the physical memory
+    for (int i = 0; i < vm->SWAP_PAGE_ENTRIES; i++)
+    {
+      u32 entry = vm->swap_table[i];
+      if (entry & 0x80000000 == 1) {
+        // this entry is not used
+        // mark it occupied and
+        // write the page number
+        vm->swap_table[i] = page_number;
+        page_is_found = true;
 
+        // do the swapping
+        int swapped_frame_no = LRU_get(vm);
+        swap(vm, swapped_frame_no, i);
 
+        // write to destination
+        vm->buffer[swapped_frame_no * vm->PAGESIZE + offset] = value;
 
-
-    // if not, allocate a page from the physical memory
-    int frame_number = alloc_page();
-    // write the value into the buffer
-    vm->buffer[frame_number * vm->PAGESIZE + offset] = value;
-    // update the page table
-    vm->invert_page_table[page_number] = frame_number;
-    // update the page fault number
-    return;
+        LRU_put(vm, swapped_frame_no);
+        return;
+      }
+    }
   }
-  
-  // map to physical address given the page, do the write, set the valid bit
-
-
-  u32 frame_number = vm->invert_page_table[page_number]; // each page entry is 32-bit
-  if (frame_number & 0x80000000 > 0) {
-    // allocate a page from the physical memory, or if it's full we'll have to swap
-    // The last ten bits of the physical address will be
-    frame_number = alloc_page();
-
-    // unset the MSB, indicating valid address
-
-    frame_number = frame_number & 0x7FFFFFFF;
-    
-
-  }
-
-
-  // write to the physical address
-
-
 }
 
 __device__ void vm_snapshot(VirtualMemory *vm, uchar *results, int offset,
