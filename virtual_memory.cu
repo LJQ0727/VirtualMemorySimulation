@@ -168,6 +168,7 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
       page_is_found = true;
       // get the frame number
       int frame_number = i;
+      // printf("frame number is %d, offset %d\n", frame_number, offset);
       // write the value into the buffer
       vm->buffer[frame_number * vm->PAGESIZE + offset] = value;
       LRU_put(vm, frame_number);
@@ -192,7 +193,7 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
         vm->invert_page_table[i] = page_number;
 
         // write to destination
-        vm->buffer[i + offset] = value;
+        vm->buffer[i * vm->PAGESIZE + offset] = value;
 
         LRU_put(vm, i);
         
