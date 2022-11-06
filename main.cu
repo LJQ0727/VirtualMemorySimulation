@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <iostream>
+
+
 #define DATAFILE "./data.bin"
 #define OUTFILE "./snapshot.bin"
 
@@ -18,8 +21,10 @@
 // 128 KB in global memory
 #define STORAGE_SIZE (1 << 17)
 
-//// count the pagefault times
+// count the pagefault times
 __device__ __managed__ int pagefault_num = 0;
+
+
 
 // data input and output
 __device__ __managed__ uchar results[STORAGE_SIZE];
@@ -31,9 +36,19 @@ __device__ __managed__ uchar storage[STORAGE_SIZE];
 // page table
 extern __shared__ u32 pt[];
 
+// swap table
+__device__ __managed__ u32 swap_table[STORAGE_SIZE / PAGE_SIZE];
+
+
+
+
+// Defined in file user_program.cu
 __device__ void user_program(VirtualMemory *vm, uchar *input, uchar *results,
                              int input_size);
 
+// initialize the virtual memory by calling `vm_init`
+// and run the user program in the memory
+// result is stored in ``results``
 __global__ void mykernel(int input_size) {
 
   // memory allocation for virtual_memory
@@ -43,7 +58,7 @@ __global__ void mykernel(int input_size) {
   VirtualMemory vm;
   vm_init(&vm, data, storage, pt, &pagefault_num, PAGE_SIZE,
           INVERT_PAGE_TABLE_SIZE, PHYSICAL_MEM_SIZE, STORAGE_SIZE,
-          PHYSICAL_MEM_SIZE / PAGE_SIZE);
+          PHYSICAL_MEM_SIZE / PAGE_SIZE, swap_table);
 
   // user program the access pattern for testing paging
   user_program(&vm, input, results, input_size);
