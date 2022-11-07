@@ -4,14 +4,21 @@
 
 __device__ void user_program(VirtualMemory *vm, uchar *input, uchar *results,
                              int input_size) {
-  // input size: 131072
   for (int i = 0; i < input_size; i++)
     vm_write(vm, i, input[i]);
+  // this will produce 16384 page faults
+
+  // for (int i = input_size - 1; i >= input_size - 8192; i--)
+  //   int value = vm_read(vm, i);
+  // this is just for testing. this will produce 0 additional page faults, becuase we're reading everything in main memory.
 
   for (int i = input_size - 1; i >= input_size - 32769; i--)
     int value = vm_read(vm, i);
+  // this will produce 19460 - 16384 = 3076 page faults
+  
 
   vm_snapshot(vm, results, 0, input_size);
+  // the test1 program in total will produce 35844 page faults in my implementation of Case3.
 }
 
 // __device__ void user_program(VirtualMemory *vm, uchar *input, uchar *results,
