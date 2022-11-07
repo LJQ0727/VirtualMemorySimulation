@@ -116,11 +116,11 @@ int main() {
     return 0;
   }
 
-  printf("input size: %d\n", input_size);
 
   cudaDeviceSynchronize();
   cudaDeviceReset();
 
+  printf("input size: %d\n", input_size);
   write_binaryFile(OUTFILE, results, input_size);
 
   printf("pagefault number is %d\n", pagefault_num);
