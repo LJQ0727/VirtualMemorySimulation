@@ -18,8 +18,8 @@
 #define INVERT_PAGE_TABLE_SIZE (1 << 14)
 // 32 KB in shared memory
 #define PHYSICAL_MEM_SIZE (1 << 15)
-// 128 KB in global memory
-#define STORAGE_SIZE (1 << 17)
+// **512 KB** in global memory
+#define STORAGE_SIZE (1 << 19)
 
 // count the pagefault times
 __device__ __managed__ int pagefault_num = 0;

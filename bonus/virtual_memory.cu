@@ -45,6 +45,8 @@ __device__ void vm_init(VirtualMemory *vm, uchar *buffer, uchar *storage,
   vm->swap_table = swap_table;
   vm->SWAP_PAGE_ENTRIES = STORAGE_SIZE / PAGESIZE;
 
+  vm->thread_id = 0;  // thread id starts from 0 and ends with 3. This indicates the thread id executing the read or write operation
+
 
   // before first vm_write or vm_read
   init_invert_page_table(vm);
@@ -111,33 +113,51 @@ __device__ uchar vm_read(VirtualMemory *vm, u32 addr) {
   int page_number = addr >> offset_bit; // This page number has at most 13 bits for our problem
   int offset = addr & ((1 << offset_bit) - 1);
 
-
+  u32 match = (page_number << 2) + vm->thread_id; // we use the last 2 bits to indicate the thread id
+  
   for (int i = 0; i < vm->PAGE_ENTRIES; i++)
   {
     u32 entry = vm->invert_page_table[i];
-    if (entry == page_number)
+    if (entry == match)
     {
       // page is found in the main memory
       LRU_put(vm, i);
       // printf("value is %d\n", vm->buffer[i*vm->PAGESIZE + offset]);
-      return vm->buffer[i*vm->PAGESIZE + offset];
+
+      // schedule the next thread to do the same operation, or return the value if this is the last thread
+      if (vm->thread_id % 4 == 3) {
+        vm->thread_id = 0;  // reset thread id for the next operation
+        return vm->buffer[i*vm->PAGESIZE + offset];
+      } else {
+        vm->thread_id++;
+        return vm_read(vm, addr);
+      }
+
     }
   }
     // page is not found in the main memory
     // this is a page fault
     // now we have to find in the swap table
     (*vm->pagefault_num_ptr)++;
+    printf("page fault in read, is now %d\n", vm->pagefault_num_ptr[0]);
     for (int j = 0; j < vm->SWAP_PAGE_ENTRIES; j++)
     {
       u32 entry = vm->swap_table[j];
-      if (entry == page_number)
+      if (entry == match)
       {
         // page is found in the swap table
         // we have to swap the page in the main memory with the page in the swap table
         int swapped_frame_no = LRU_get(vm);
         swap(vm, swapped_frame_no, j);
         LRU_put(vm, swapped_frame_no);
-        return vm->buffer[swapped_frame_no*vm->PAGESIZE + offset];
+        // schedule the next thread to do the same operation, or return the value if this is the last thread
+        if (vm->thread_id % 4 == 3) {
+          vm->thread_id = 0;
+          return vm->buffer[swapped_frame_no*vm->PAGESIZE + offset];
+        } else {
+          vm->thread_id++;
+          return vm_read(vm, addr);
+        }
       }
     }
     assert(0);  // no such page.
@@ -155,6 +175,10 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
   int page_number = addr >> offset_bit; // This page number has at most 13 bits for our problem
   int offset = addr & ((1 << offset_bit) - 1);
 
+  u32 match = (page_number << 2) + vm->thread_id; // each thread has a bit indicating its thread id in page table
+  // printf("thread id %d executing write\n", vm->thread_id);
+  // printf("page number is :%d\n", page_number);
+  // printf("match is %d\n", match);
 
   bool page_is_found = false;
   // in the inverted page table, search for the page number
@@ -163,7 +187,7 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
   {
     // if page is found in the page table
     u32 entry = vm->invert_page_table[i];
-    if (entry == page_number) // if the page number is found
+    if (entry == match) // if the page number is found
     {
       page_is_found = true;
       // get the frame number
@@ -172,7 +196,15 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
       // write the value into the buffer
       vm->buffer[frame_number * vm->PAGESIZE + offset] = value;
       LRU_put(vm, frame_number);
-      return;
+
+      // schedule the next thread to do the same operation, or return if all threads are done
+      if (vm->thread_id % 4 == 3) {
+        vm->thread_id = 0;  // reset thread id for the next operation
+        return;
+      } else {
+        vm->thread_id++;
+        return vm_write(vm, addr, value); // schedule the same operation but with different thread id
+      }
     } 
   } 
 
@@ -180,6 +212,7 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
   if (!page_is_found) {
     // if page is not found in the page table
     (*vm->pagefault_num_ptr)++;
+    printf("page fault in write, is now %d\n", vm->pagefault_num_ptr[0]);
 
 
     // check if the main memory is full
@@ -190,14 +223,22 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
         // this entry is not used
         // mark it occupied and
         // write the page number
-        vm->invert_page_table[i] = page_number;
+        vm->invert_page_table[i] = match;
 
         // write to destination
         vm->buffer[i * vm->PAGESIZE + offset] = value;
 
         LRU_put(vm, i);
         
-        return;
+        // schedule the next thread to do the same operation, or return if all threads are done
+        if (vm->thread_id % 4 == 3) {
+          vm->thread_id = 0;  // reset thread id for the next operation
+          return;
+          
+        } else {
+          vm->thread_id++;
+          return vm_write(vm, addr, value);
+        }
       }
     }
 
@@ -208,7 +249,7 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
     for (int i = 0; i < vm->SWAP_PAGE_ENTRIES; i++)
     {
       u32 entry = vm->swap_table[i];
-      if (entry == page_number) // if the page number is found
+      if (entry == match) // if the thread corresponding page number is found
       {
         //printf("page is found in the swap table");
         // the page in found in the swap storage
@@ -226,7 +267,14 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
         vm->buffer[swapped_frame_no * vm->PAGESIZE + offset] = value;
 
         LRU_put(vm, swapped_frame_no);
-        return;
+        // schedule the next thread to do the same operation, or return if all threads are done
+        if (vm->thread_id % 4 == 3) {
+          vm->thread_id = 0;
+          return;
+        } else {
+          vm->thread_id++;
+          return vm_write(vm, addr, value);
+        }
       } 
     }
     
@@ -239,7 +287,7 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
         // this entry is not used
         // mark it occupied and
         // write the page number
-        vm->swap_table[i] = page_number;
+        vm->swap_table[i] = match;
         page_is_found = true;
 
         // do the swapping
@@ -254,7 +302,14 @@ __device__ void vm_write(VirtualMemory *vm, u32 addr, uchar value) {
         vm->buffer[swapped_frame_no * vm->PAGESIZE + offset] = value;
 
         LRU_put(vm, swapped_frame_no);
-        return;
+        // schedule the next thread to do the same operation, or return if all threads are done
+        if (vm->thread_id % 4 == 3) {
+          vm->thread_id = 0;
+          return;
+        } else {
+          vm->thread_id++;
+          return vm_write(vm, addr, value);
+        }
       }
     }
   }
@@ -264,6 +319,8 @@ __device__ void vm_snapshot(VirtualMemory *vm, uchar *results, int offset,
                             int input_size) {
   /* Complete snapshot function togther with vm_read to load elements from data
    * to result buffer */
+  // because vm_read returns the content written by the last thread in addr, we can directly call vm_read
+  // to get the 128kb content in the last thread
   u32 addr = offset;
   for (int i = 0; i < input_size; i++) {
     results[i] = vm_read(vm, addr);
