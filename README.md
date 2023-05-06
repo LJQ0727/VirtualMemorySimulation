@@ -2,7 +2,8 @@
 
 # Overview
 
-In this assignment, I have completed both the basic VM simulation and the bonus task of multithreaded VM simulation. The following content will describe the relevant information of these two tasks I completed.
+In this assignment, I have completed both the basic VM simulation and the bonus task of multithreaded VM simulation, using C language and CUDA.
+The following content will describe the relevant information of these two tasks I completed.
 
 # Environment
 
@@ -48,7 +49,7 @@ nvcc --relocatable-device-code=true main.cu user_program.cu virtual_memory.cu -o
 
 and run `./test` to run the program.
 
-## Basic task sample outputs
+<!-- ## Basic task sample outputs
 
 On the first test program:
 
@@ -58,7 +59,7 @@ On the second test program (the one that was released later):
 
 ![Untitled](images/Untitled%205.png)
 
-Note that for this task, it requires several seconds or more than 10 seconds to complete the program and produce the final page fault number.
+Note that for this task, it requires several seconds or more than 10 seconds to complete the program and produce the final page fault number. -->
 
 ## Bonus Task Compilation and running
 
@@ -68,11 +69,11 @@ Because the bonus task shares the same template structure with the basic task, t
 sbatch slurm.sh
 ```
 
-## Bonus task sample output
+<!-- ## Bonus task sample output
 
 Because in the bonus task, I adopted the third version approach to implement the multithreaded VM, which is to use 512kb for storage memory and the four threads do not overwrite each other. Therefore the execution time is estimated to be around **four times** as the basic task, which can take long (40 seconds or so) and please be patient to wait for the final output.
 
-![Untitled](images/Untitled%206.png)
+![Untitled](images/Untitled%206.png) -->
 
 # Program Design
 
@@ -166,8 +167,11 @@ Then for each of the four threads it reads 32769bytes(32kb+1byte).
 ![Untitled](images/Untitled%209.png)
 
 The state of the main memory is:
-
-![Untitled](images/Untitled%2012.png)
+<p align="center">
+  <img width="200" src="images/Untitled%2012.png" alt="txt">
+    
+</p>
+<!-- ![Untitled](images/Untitled%2012.png) -->
 
 First, we assume that all pages in the main memory are transferred into secondary memory. Thus, all reads will result in page fault, therefore in total 1025 * 4 = 4100 page faults.
 
