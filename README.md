@@ -1,6 +1,4 @@
-# Assignment 3 Project Report
-
-Li Jiaqi  120090727
+# Operating System Virtual Memory Simulation in CUDA
 
 # Overview
 
@@ -8,29 +6,29 @@ In this assignment, I have completed both the basic VM simulation and the bonus 
 
 # Environment
 
-## OS Version
+<!-- ## OS Version
 
 I use the university’s High Performance Cluster (HPC) for testing and running the CUDA program. The nodes run on a CenOS version 7.5.1804. 
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled.png)
+![Untitled](images/Untitled.png)
 
 ## Kernel version
 
 This is the kernel version of the HPC. Other versions should also be OK.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%201.png)
+![Untitled](images/Untitled%201.png) -->
 
 ## CUDA Version
 
-I use the CUDA compiler version 11.7 for compiling the CUDA program. 
+I use the CUDA compiler version 11.7 for compiling the CUDA program, using a Quadro RTX 4000 GPU as hardware. 
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%202.png)
+<!-- ![Untitled](images/Untitled%202.png) -->
 
-## GPU Info
+<!-- ## GPU Info
 
 For each node in the HPC, it is equipped with a Quadro RTX 4000 GPU. Each time the program only runs on one allocated node.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%203.png)
+![Untitled](images/Untitled%203.png) -->
 
 # Running the program
 
@@ -54,11 +52,11 @@ and run `./test` to run the program.
 
 On the first test program:
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%204.png)
+![Untitled](images/Untitled%204.png)
 
 On the second test program (the one that was released later):
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%205.png)
+![Untitled](images/Untitled%205.png)
 
 Note that for this task, it requires several seconds or more than 10 seconds to complete the program and produce the final page fault number.
 
@@ -74,7 +72,7 @@ sbatch slurm.sh
 
 Because in the bonus task, I adopted the third version approach to implement the multithreaded VM, which is to use 512kb for storage memory and the four threads do not overwrite each other. Therefore the execution time is estimated to be around **four times** as the basic task, which can take long (40 seconds or so) and please be patient to wait for the final output.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%206.png)
+![Untitled](images/Untitled%206.png)
 
 # Program Design
 
@@ -86,7 +84,7 @@ In this CUDA program, we simulate the physical memory (48kb, 32kb for data acces
 
 In our implementation, the page size is 32 bytes. Therefore the total page entries is 32kb / 32 = 1024 entries. Because this count is limited, we implement an inverted page table using an array with 1024 entries. For each entry we use 64 bits, which contains one bit for on/off indication, 31 bits for storing the page number corresponding to that frame; and the rest 32 bits for storing its access count trace (for LRU implementation). This in total takes 8kb, which is less than the permitted size of 16kb and is adequate (in fact, we can use less bits because in the environment given, the page number is not so large as 31 bits and so as the access trace. But our implementation here is simper by using two `u32`s).
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%207.png)
+![Untitled](images/Untitled%207.png)
 
 ### Designing the function `vm_write` and `vm_read`
 
@@ -135,11 +133,11 @@ id1-->id2-->id1
 
 As show above in the program output, the page fault count for the first test program is **8193**. This is because, firstly we write 128kb, which is 4096 entries into memory. Because no page exist yet, so all 4096 pages will produce page fault.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%208.png)
+![Untitled](images/Untitled%208.png)
 
 Then, we read 32769bytes(32kb+1byte). The first 32kb is in main memory, so no page fault there. But when we read addition one byte, that will be one page fault.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%209.png)
+![Untitled](images/Untitled%209.png)
 
 Then in the `vm_snapshot`, we start from address 0, which is in page 0 and read 4096 pages. Therefore at the beginning there’s page fault. Therefore this is another 4096 page faults. 
 
@@ -151,7 +149,7 @@ The total page fault is **9215**, as shown in the output. In this addition test 
 
 Then, we write (32kb-32b) data starting from 0. Because these are also new pages, so will give total page fault, (1024-1) = 1023. (because each page is 32 bytes).
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%2010.png)
+![Untitled](images/Untitled%2010.png)
 
 Then, we read out VM[32K, 160K]. Because these pages are also not in the main memory, so also total page fault, 4096.
 
@@ -161,15 +159,15 @@ So in total 4096 + 1023 + 4096 = 9215 page faults.
 
 As show above in the program output, the page fault count for the first test program is **35844**. This is because, first we write 128kb * 4, which is 4096 * 4 entries into memory. Because no page exist yet, so all 4096 * 4 =  16384 pages will produce page fault.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%2011.png)
+![Untitled](images/Untitled%2011.png)
 
 Then for each of the four threads it reads 32769bytes(32kb+1byte). 
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%209.png)
+![Untitled](images/Untitled%209.png)
 
 The state of the main memory is:
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%2012.png)
+![Untitled](images/Untitled%2012.png)
 
 First, we assume that all pages in the main memory are transferred into secondary memory. Thus, all reads will result in page fault, therefore in total 1025 * 4 = 4100 page faults.
 
